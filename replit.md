@@ -10,7 +10,8 @@ This is a fully functional Telegram bot (@TurboscribeBot) for audio/video transc
 ✅ **AI-Powered Transcription**: OpenAI Whisper API integration  
 ✅ **Multi-language Translation**: 12+ languages via GPT-4o-mini  
 ✅ **Freemium Model**: 3 free requests per day per user  
-✅ **Database Integration**: PostgreSQL for user tracking and usage limits  
+✅ **Premium Subscriptions**: Full Telegram Stars integration (5 ⭐ per month)  
+✅ **Database Integration**: PostgreSQL for user tracking, payments, and subscriptions  
 ✅ **Error Handling**: Comprehensive error handling and user feedback  
 ✅ **File Size Limits**: 100MB maximum file size protection  
 ✅ **Production Ready**: Proper logging, state management, and cleanup
@@ -42,8 +43,10 @@ Preferred communication style: Simple, everyday language.
 - **Localized Messages**: Complete message localization system with language-specific user interfaces
 
 ## Business Model
-- **Freemium Structure**: 1 free request per day for regular users
+- **Freemium Structure**: 3 free requests per day for regular users
 - **Premium Subscriptions**: Unlimited requests for 5 Telegram Stars per month
+- **Payment Processing**: Full Telegram Stars API integration with secure payment validation
+- **Subscription Management**: Automated 30-day subscription cycles with expiration tracking
 - **Usage Tracking**: Daily request counting and subscription status management
 
 ## Error Handling & Logging
