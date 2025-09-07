@@ -9,7 +9,7 @@ This is a fully functional Telegram bot (@TurboscribeBot) for audio/video transc
 ✅ **Multi-format Support**: Audio (MP3, WAV, M4A, OGG, FLAC, AAC) and Video (MP4, MOV, AVI, MKV, WebM)  
 ✅ **AI-Powered Transcription**: OpenAI Whisper API integration  
 ✅ **Multi-language Translation**: 12+ languages via GPT-4o-mini  
-✅ **Freemium Model**: 1 free request per day per user  
+✅ **Freemium Model**: 3 free requests per day per user  
 ✅ **Database Integration**: PostgreSQL for user tracking and usage limits  
 ✅ **Error Handling**: Comprehensive error handling and user feedback  
 ✅ **File Size Limits**: 100MB maximum file size protection  

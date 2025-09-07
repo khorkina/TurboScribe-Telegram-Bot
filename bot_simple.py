@@ -32,7 +32,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
-DAILY_FREE_REQUESTS = 1
+DAILY_FREE_REQUESTS = 3
 MAX_FILE_SIZE_MB = 100
 SUPPORTED_AUDIO_FORMATS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"}
 SUPPORTED_VIDEO_FORMATS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
@@ -55,8 +55,8 @@ LANGUAGES = {
 
 # Simple messages
 MESSAGES = {
-    'start': "🎵 Welcome to Audio/Video Transcription Bot!\n\nI can transcribe and translate your audio/video files.\n\n📊 You have {free_requests} free request(s) remaining today.\n\n📎 Send me an audio or video file to get started!",
-    'help': "📋 How to use:\n1. Send me an audio or video file\n2. I'll transcribe it automatically\n3. Choose your target language\n4. Get the translation!\n\n💎 Premium: Unlimited requests for 5 ⭐ per month",
+    'start': "🎵 Welcome to Audio/Video Transcription Bot!\n\nI can transcribe and translate your audio/video files.\n\n📊 You have {free_requests} free request(s) remaining today (3 per day).\n\n📎 Send me an audio or video file to get started!",
+    'help': "📋 How to use:\n1. Send me an audio or video file\n2. I'll transcribe it automatically\n3. Choose your target language\n4. Get the translation!\n\n🆓 Free: 3 requests per day\n💎 Premium: Unlimited requests for 5 ⭐ per month",
     'processing': "🔄 Processing your file...",
     'transcribing': "🎤 Transcribing audio...",
     'transcription_complete': "✅ Transcription complete!\n\n📝 **Original text:**\n{transcription}\n\n🌐 Choose target language for translation:",
@@ -67,7 +67,7 @@ MESSAGES = {
     'processing_error': "❌ Error processing file. Please try again.",
     'no_transcription': "❌ Could not transcribe audio. Please ensure it contains speech.",
     'translation_failed': "❌ Translation failed. Please try again.",
-    'limit_reached': "🚫 Daily limit reached!\n\n💎 Subscribe for unlimited access: 5 ⭐ per month",
+    'limit_reached': "🚫 Daily limit reached! (3 requests per day)\n\n💎 Subscribe for unlimited access: 5 ⭐ per month",
     'premium_user': "💎 Premium user - unlimited requests!",
     'subscribe_button': "💎 Subscribe (5 ⭐)",
     'subscription_successful': "🎉 Subscription successful! You now have unlimited access!",

@@ -9,7 +9,7 @@ class Config:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
     
     # Limits
-    DAILY_FREE_REQUESTS = 1
+    DAILY_FREE_REQUESTS = 3
     SUBSCRIPTION_PRICE_STARS = 5
     
     # File processing limits
