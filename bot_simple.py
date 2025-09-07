@@ -16,7 +16,7 @@ import asyncpg
 import aiohttp
 import aiofiles
 from aiogram import Bot, Dispatcher, Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, PreCheckoutQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -117,6 +117,29 @@ async def init_database():
                     PRIMARY KEY(user_id, usage_date)
                 )
             """)
+            
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_subscriptions (
+                    user_id BIGINT PRIMARY KEY,
+                    is_premium BOOLEAN DEFAULT FALSE,
+                    subscription_start TIMESTAMP,
+                    subscription_end TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS payment_records (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    telegram_payment_charge_id VARCHAR(200),
+                    amount_stars INTEGER,
+                    invoice_payload VARCHAR(200),
+                    status VARCHAR(50) DEFAULT 'completed',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
         
         logging.info("Database initialized successfully")
     except Exception as e:
@@ -154,6 +177,101 @@ async def increment_daily_usage(user_id: int) -> int:
             return result['requests_count'] if result else 1
     except:
         return 1
+
+async def is_user_premium(user_id: int) -> bool:
+    """Check if user has active premium subscription"""
+    if not db_pool:
+        return False
+    
+    try:
+        async with db_pool.acquire() as conn:
+            result = await conn.fetchrow("""
+                SELECT is_premium, subscription_end FROM user_subscriptions 
+                WHERE user_id = $1
+            """, user_id)
+            
+            if not result:
+                # Create subscription record
+                await conn.execute("""
+                    INSERT INTO user_subscriptions (user_id, is_premium) 
+                    VALUES ($1, FALSE)
+                    ON CONFLICT (user_id) DO NOTHING
+                """, user_id)
+                return False
+            
+            if not result['is_premium']:
+                return False
+            
+            # Check if subscription expired
+            if result['subscription_end']:
+                from datetime import datetime
+                if result['subscription_end'] < datetime.now():
+                    # Subscription expired, update status
+                    await conn.execute("""
+                        UPDATE user_subscriptions SET is_premium = FALSE 
+                        WHERE user_id = $1
+                    """, user_id)
+                    return False
+            
+            return True
+    except Exception as e:
+        logging.error(f"Error checking premium status: {e}")
+        return False
+
+async def activate_premium_subscription(user_id: int, duration_days: int = 30):
+    """Activate premium subscription for user"""
+    if not db_pool:
+        return
+    
+    try:
+        from datetime import datetime, timedelta
+        subscription_end = datetime.now() + timedelta(days=duration_days)
+        
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO user_subscriptions 
+                (user_id, is_premium, subscription_start, subscription_end, updated_at) 
+                VALUES ($1, TRUE, CURRENT_TIMESTAMP, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id) 
+                DO UPDATE SET 
+                    is_premium = TRUE, 
+                    subscription_start = CURRENT_TIMESTAMP,
+                    subscription_end = $2,
+                    updated_at = CURRENT_TIMESTAMP
+            """, user_id, subscription_end)
+            
+            logging.info(f"Premium activated for user {user_id} until {subscription_end}")
+    except Exception as e:
+        logging.error(f"Error activating premium: {e}")
+
+async def save_payment_record(user_id: int, payment_charge_id: str, amount: int, payload: str):
+    """Save payment record to database"""
+    if not db_pool:
+        return
+    
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO payment_records 
+                (user_id, telegram_payment_charge_id, amount_stars, invoice_payload) 
+                VALUES ($1, $2, $3, $4)
+            """, user_id, payment_charge_id, amount, payload)
+            logging.info(f"Payment record saved for user {user_id}: {amount} stars")
+    except Exception as e:
+        logging.error(f"Error saving payment record: {e}")
+
+async def can_make_request(user_id: int) -> tuple[bool, str]:
+    """Check if user can make a request"""
+    is_premium = await is_user_premium(user_id)
+    
+    if is_premium:
+        return True, "premium"
+    
+    daily_usage = await get_daily_usage(user_id)
+    if daily_usage < DAILY_FREE_REQUESTS:
+        return True, "free"
+    
+    return False, "limit_exceeded"
 
 async def download_file(file_path: str, file_url: str) -> Optional[str]:
     """Download file from Telegram servers"""
@@ -232,8 +350,13 @@ async def start_command(message: Message):
         return
         
     user = message.from_user
-    daily_usage = await get_daily_usage(user.id)
-    free_requests = max(0, DAILY_FREE_REQUESTS - daily_usage)
+    is_premium = await is_user_premium(user.id)
+    
+    if is_premium:
+        free_requests = "∞ (Premium)"
+    else:
+        daily_usage = await get_daily_usage(user.id)
+        free_requests = max(0, DAILY_FREE_REQUESTS - daily_usage)
     
     await message.answer(
         MESSAGES['start'].format(free_requests=free_requests)
@@ -244,6 +367,45 @@ async def help_command(message: Message):
     """Handle /help command"""
     await message.answer(MESSAGES['help'])
 
+@router.message(Command("status"))
+async def status_command(message: Message):
+    """Handle /status command - show user's subscription status"""
+    if not message.from_user:
+        return
+        
+    user = message.from_user
+    is_premium = await is_user_premium(user.id)
+    daily_usage = await get_daily_usage(user.id)
+    
+    if is_premium:
+        status_text = (
+            "💎 **Premium User**\n\n"
+            "✅ Unlimited transcriptions\n"
+            "✅ Unlimited translations\n"
+            "✅ Priority processing\n\n"
+            f"📊 Today's usage: {daily_usage} requests"
+        )
+    else:
+        remaining = max(0, DAILY_FREE_REQUESTS - daily_usage)
+        status_text = (
+            "🆓 **Free User**\n\n"
+            f"📊 Today's usage: {daily_usage}/{DAILY_FREE_REQUESTS}\n"
+            f"📈 Remaining: {remaining} requests\n\n"
+            "💎 Upgrade to Premium for unlimited access!"
+        )
+        
+        if remaining == 0:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text=MESSAGES['subscribe_button'],
+                    callback_data="subscribe"
+                )
+            ]])
+            await message.answer(status_text, reply_markup=keyboard)
+            return
+    
+    await message.answer(status_text)
+
 @router.message(F.content_type.in_(['audio', 'video', 'document', 'voice', 'video_note']))
 async def handle_media_file(message: Message, state: FSMContext):
     """Handle audio/video files"""
@@ -252,9 +414,9 @@ async def handle_media_file(message: Message, state: FSMContext):
         
     user = message.from_user
     
-    # Check daily limit
-    daily_usage = await get_daily_usage(user.id)
-    if daily_usage >= DAILY_FREE_REQUESTS:
+    # Check if user can make request
+    can_request, request_type = await can_make_request(user.id)
+    if not can_request:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
                 text=MESSAGES['subscribe_button'],
@@ -344,8 +506,9 @@ async def handle_media_file(message: Message, state: FSMContext):
             'filename': filename
         })
         
-        # Increment usage
-        await increment_daily_usage(user.id)
+        # Increment usage if not premium
+        if request_type != "premium":
+            await increment_daily_usage(user.id)
     
     except Exception as e:
         logging.error(f"Error processing file: {e}")
@@ -461,17 +624,106 @@ async def handle_cancel(callback_query: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "subscribe")
 async def handle_subscription(callback_query: CallbackQuery):
-    """Handle subscription request"""
+    """Handle subscription request - create Telegram Stars invoice"""
+    if not callback_query.from_user or not callback_query.message:
+        return
+        
     try:
-        if callback_query.message:
-            await callback_query.message.answer(
-                "💎 Subscription feature will be available soon!\n\n"
-                "For now, the bot is in beta mode with free usage.",
-            )
-        await callback_query.answer()
+        user_id = callback_query.from_user.id
+        
+        # Create invoice for 5 Telegram Stars (monthly subscription)
+        prices = [LabeledPrice(label="Premium Monthly Subscription", amount=5)]
+        
+        await callback_query.message.bot.send_invoice(
+            chat_id=callback_query.message.chat.id,
+            title="💎 Premium Subscription",
+            description="Get unlimited transcriptions and translations for 1 month!\n\n✅ Unlimited requests\n✅ Priority processing\n✅ No daily limits",
+            payload=f"premium_subscription_{user_id}",
+            provider_token="",  # Empty for Telegram Stars
+            currency="XTR",  # Telegram Stars currency
+            prices=prices,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="💎 Pay 5 ⭐", pay=True)
+            ]])
+        )
+        
+        await callback_query.answer("Invoice sent! Complete payment to activate premium.")
+        
     except Exception as e:
         logging.error(f"Subscription error: {e}")
         await callback_query.answer(MESSAGES['subscription_failed'], show_alert=True)
+
+@router.pre_checkout_query()
+async def handle_pre_checkout(pre_checkout_query: PreCheckoutQuery):
+    """Handle pre-checkout validation"""
+    try:
+        # Validate the payment
+        user_id = pre_checkout_query.from_user.id
+        payload = pre_checkout_query.invoice_payload
+        
+        logging.info(f"Pre-checkout for user {user_id}, payload: {payload}")
+        
+        # Validate that this is a premium subscription
+        if not payload.startswith("premium_subscription_"):
+            await pre_checkout_query.bot.answer_pre_checkout_query(
+                pre_checkout_query.id, 
+                ok=False, 
+                error_message="Invalid subscription type"
+            )
+            return
+        
+        # All checks passed
+        await pre_checkout_query.bot.answer_pre_checkout_query(
+            pre_checkout_query.id, 
+            ok=True
+        )
+        
+    except Exception as e:
+        logging.error(f"Pre-checkout error: {e}")
+        await pre_checkout_query.bot.answer_pre_checkout_query(
+            pre_checkout_query.id, 
+            ok=False, 
+            error_message="Payment validation failed"
+        )
+
+@router.message(F.content_type == 'successful_payment')
+async def handle_successful_payment(message: Message):
+    """Handle successful payment - activate premium subscription"""
+    if not message.from_user or not message.successful_payment:
+        return
+        
+    try:
+        user_id = message.from_user.id
+        payment = message.successful_payment
+        
+        # Save payment record
+        await save_payment_record(
+            user_id=user_id,
+            payment_charge_id=payment.telegram_payment_charge_id,
+            amount=payment.total_amount,
+            payload=payment.invoice_payload
+        )
+        
+        # Activate premium subscription for 30 days
+        await activate_premium_subscription(user_id, duration_days=30)
+        
+        # Send success message
+        await message.answer(
+            "🎉 **Payment Successful!**\n\n"
+            "✅ Premium subscription activated!\n"
+            "✅ Unlimited transcriptions and translations\n" 
+            "✅ Valid for 30 days\n\n"
+            "Thank you for supporting our service! 💎"
+        )
+        
+        logging.info(f"Premium subscription activated for user {user_id}")
+        
+    except Exception as e:
+        logging.error(f"Payment processing error: {e}")
+        await message.answer(
+            "❌ There was an error activating your subscription. "
+            "Please contact support if the issue persists."
+        )
 
 @router.message()
 async def handle_other_messages(message: Message):
